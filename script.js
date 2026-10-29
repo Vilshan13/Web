@@ -12,15 +12,9 @@
     const soundToggle = $('#soundToggle');
     const sections = $$('.section');
     const navLinkEls = $$('.nav-link');
-    const totalSections = sections.length;
-    const TIME_PER_SECTION = 15 / totalSections;
-
-    let currentSection = 0;
-    let isTransitioning = false;
-    let hasStarted = false;
-    let autoAdvanceTimer = null;
 
 
+    /* ─── Particles ─── */
 
     function createParticles() {
         const container = document.createElement('div');
@@ -33,48 +27,71 @@
         document.body.appendChild(container);
     }
 
-    function createDots() {
-        const container = document.createElement('div');
-        container.className = 'section-dots';
-        container.id = 'sectionDots';
-        for (let i = 0; i < totalSections; i++) {
-            const dot = document.createElement('button');
-            dot.className = 'section-dot' + (i === 0 ? ' active' : '');
-            dot.setAttribute('aria-label', `Go to section ${i + 1}`);
-            dot.addEventListener('click', () => goToSection(i));
-            container.appendChild(dot);
-        }
-        document.body.appendChild(container);
-    }
 
+    /* ─── Scroll-triggered Reveal Animations (Intersection Observer) ─── */
 
-    function goToSection(index) {
-        if (index === currentSection || isTransitioning || index < 0 || index >= totalSections) return;
+    function initScrollReveal() {
+        const revealElements = $$('.reveal');
 
-        isTransitioning = true;
-        sections[currentSection].classList.remove('active');
-        currentSection = index;
-        sections[currentSection].classList.add('active');
-
-        $$('.section-dot').forEach((dot, i) => dot.classList.toggle('active', i === currentSection));
-
-        const currentId = sections[currentSection].id;
-        navLinkEls.forEach(link => {
-            link.classList.toggle('active', link.getAttribute('href') === '#' + currentId);
+        const observer = new IntersectionObserver((entries) => {
+            entries.forEach((entry) => {
+                if (entry.isIntersecting) {
+                    entry.target.classList.add('revealed');
+                    // Keep observing so re-entering re-triggers if needed
+                } else {
+                    // Optional: remove class when out of view so it can re-animate on scroll back
+                    entry.target.classList.remove('revealed');
+                }
+            });
+        }, {
+            threshold: 0.15,
+            rootMargin: '0px 0px -50px 0px'
         });
 
-        nav.classList.toggle('scrolled', currentSection > 0);
-
-        clearTimeout(autoAdvanceTimer);
-        if (currentSection < totalSections - 1) {
-            autoAdvanceTimer = setTimeout(() => {
-                goToSection(currentSection + 1);
-            }, TIME_PER_SECTION * 1000);
-        }
-
-        setTimeout(() => { isTransitioning = false; }, 500);
+        revealElements.forEach((el) => observer.observe(el));
     }
 
+
+    /* ─── Nav Active Link on Scroll ─── */
+
+    function initNavHighlight() {
+        const observer = new IntersectionObserver((entries) => {
+            entries.forEach((entry) => {
+                if (entry.isIntersecting) {
+                    const id = entry.target.id;
+                    navLinkEls.forEach((link) => {
+                        link.classList.toggle('active', link.getAttribute('href') === '#' + id);
+                    });
+                }
+            });
+        }, {
+            threshold: 0.35
+        });
+
+        sections.forEach((section) => {
+            if (section.id) observer.observe(section);
+        });
+    }
+
+
+    /* ─── Scroll Progress Bar ─── */
+
+    function updateProgressBar() {
+        const scrollTop = window.scrollY;
+        const docHeight = document.documentElement.scrollHeight - window.innerHeight;
+        const progress = docHeight > 0 ? (scrollTop / docHeight) * 100 : 0;
+        progressBar.style.width = progress + '%';
+    }
+
+
+    /* ─── Nav Background on Scroll ─── */
+
+    function updateNavBackground() {
+        nav.classList.toggle('scrolled', window.scrollY > 60);
+    }
+
+
+    /* ─── Sound Toggle ─── */
 
     function toggleSound() {
         video.muted = !video.muted;
@@ -83,85 +100,108 @@
     }
 
 
-    function handleWheel(e) {
-        if (!hasStarted || isTransitioning) return;
-        e.preventDefault();
-        if (e.deltaY > 30) goToSection(currentSection + 1);
-        else if (e.deltaY < -30) goToSection(currentSection - 1);
-    }
+    /* ─── Smooth Scroll for Nav Links ─── */
 
-    function handleKeyboard(e) {
-        if (!hasStarted) return;
-        const keyMap = {
-            'ArrowDown': 1, 'ArrowRight': 1, ' ': 1,
-            'ArrowUp': -1, 'ArrowLeft': -1,
-        };
-
-        if (keyMap[e.key] !== undefined) {
-            e.preventDefault();
-            goToSection(currentSection + keyMap[e.key]);
-        } else if (e.key === 'Home') {
-            e.preventDefault();
-            goToSection(0);
-        } else if (e.key === 'End') {
-            e.preventDefault();
-            goToSection(totalSections - 1);
-        } else if (e.key.toLowerCase() === 'm') {
-            toggleSound();
-        }
-    }
-
-
-    function init() {
-        createParticles();
-        createDots();
-        sections[0].classList.add('active');
-
-        soundToggle.addEventListener('click', toggleSound);
-
-        document.addEventListener('keydown', handleKeyboard);
-        document.addEventListener('wheel', handleWheel, { passive: false });
-
-        let touchStartY = 0;
-        document.addEventListener('touchstart', (e) => { touchStartY = e.touches[0].clientY; }, { passive: true });
-        document.addEventListener('touchend', (e) => {
-            const diff = touchStartY - e.changedTouches[0].clientY;
-            if (Math.abs(diff) > 50) goToSection(currentSection + (diff > 0 ? 1 : -1));
-        }, { passive: true });
-
-        navToggle.addEventListener('click', () => {
-            navToggle.classList.toggle('active');
-            navLinks.classList.toggle('open');
-        });
-
-        navLinkEls.forEach(link => {
+    function initSmoothNav() {
+        navLinkEls.forEach((link) => {
             link.addEventListener('click', (e) => {
                 e.preventDefault();
-                const target = Array.from(sections).findIndex(s => s.id === link.getAttribute('href').slice(1));
-                if (target !== -1) goToSection(target);
+                const targetId = link.getAttribute('href').slice(1);
+                const targetEl = document.getElementById(targetId);
+                if (targetEl) {
+                    targetEl.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                }
                 navToggle.classList.remove('active');
                 navLinks.classList.remove('open');
             });
         });
 
-        video.addEventListener('ended', () => {
-            video.currentTime = 0;
-            video.play();
-            currentSection = totalSections;
-            goToSection(0);
+        // Footer links smooth scroll
+        $$('.footer-links a').forEach((link) => {
+            link.addEventListener('click', (e) => {
+                e.preventDefault();
+                const targetId = link.getAttribute('href').slice(1);
+                const targetEl = document.getElementById(targetId);
+                if (targetEl) {
+                    targetEl.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                }
+            });
         });
 
-        video.addEventListener('timeupdate', () => {
-            progressBar.style.width = ((video.currentTime / (video.duration || 15)) * 100) + '%';
+        // Hero CTA buttons smooth scroll
+        $$('.hero-cta .btn').forEach((btn) => {
+            btn.addEventListener('click', (e) => {
+                e.preventDefault();
+                const targetId = btn.getAttribute('href').slice(1);
+                const targetEl = document.getElementById(targetId);
+                if (targetEl) {
+                    targetEl.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                }
+            });
         });
 
-        hasStarted = true;
-        video.muted = true;
-        video.play().catch(() => setTimeout(() => { video.muted = true; video.play(); }, 300));
-
-        if (currentSection < totalSections - 1) {
-            autoAdvanceTimer = setTimeout(() => goToSection(currentSection + 1), TIME_PER_SECTION * 1000);
+        // CTA section button smooth scroll
+        const ctaBtn = $('.section--cta .btn');
+        if (ctaBtn) {
+            ctaBtn.addEventListener('click', (e) => {
+                e.preventDefault();
+                const targetId = ctaBtn.getAttribute('href').slice(1);
+                const targetEl = document.getElementById(targetId);
+                if (targetEl) {
+                    targetEl.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                }
+            });
         }
+    }
+
+
+    /* ─── Init ─── */
+
+    function init() {
+        createParticles();
+        initScrollReveal();
+        initNavHighlight();
+        initSmoothNav();
+
+        // Scroll events
+        let ticking = false;
+        window.addEventListener('scroll', () => {
+            if (!ticking) {
+                requestAnimationFrame(() => {
+                    updateProgressBar();
+                    updateNavBackground();
+                    ticking = false;
+                });
+                ticking = true;
+            }
+        }, { passive: true });
+
+        // Sound toggle
+        soundToggle.addEventListener('click', toggleSound);
+
+        // Mobile nav toggle
+        navToggle.addEventListener('click', () => {
+            navToggle.classList.toggle('active');
+            navLinks.classList.toggle('open');
+        });
+
+        // Keyboard shortcut for sound
+        document.addEventListener('keydown', (e) => {
+            if (e.key.toLowerCase() === 'm') toggleSound();
+        });
+
+        // Video playback
+        video.muted = true;
+        video.play().catch(() => {
+            setTimeout(() => {
+                video.muted = true;
+                video.play();
+            }, 300);
+        });
+
+        // Initial state
+        updateProgressBar();
+        updateNavBackground();
     }
 
     document.addEventListener('DOMContentLoaded', init);
